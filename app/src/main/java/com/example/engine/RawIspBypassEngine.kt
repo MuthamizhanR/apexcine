@@ -53,12 +53,16 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 data class RawSensorTelemetry(
-    val sensorName: String = "Live Hardware Camera Sensor",
+    val sensorName: String = "Probing Camera2 RAW_SENSOR...",
     val hardwareRawSupported: Boolean = false,
-    val activeStreamFormat: String = "LIVE CAMERA -> VULKAN/GLES COMPUTE",
-    val resolutionWidth: Int = 1280,
-    val resolutionHeight: Int = 720,
-    val activeFps: Int = 30,
+    val isSimulatedRawStream: Boolean = true,
+    val timestampSourceRealtime: Boolean = false,
+    val maxProbedRawFps: Float = 24.0f,
+    val thermalQosStatus: String = "UNAVAILABLE (HAL N/A)",
+    val activeStreamFormat: String = "CameraX Preview RGBA + C++20 Camera OS Bridge",
+    val resolutionWidth: Int = 640,
+    val resolutionHeight: Int = 360,
+    val activeFps: Int = 24,
     val dataRateMBps: Float = 0.0f,
     val droppedFrames: Int = 0,
     val recordedFramesCount: Int = 0,
@@ -70,6 +74,10 @@ data class RawSensorTelemetry(
     val audioLeftDb: Float = -18f,
     val audioRightDb: Float = -16f,
     val meanLuminanceEv: Float = 0.0f,
+    val ettrHeadroomStops: Float = 1.8f,
+    val isDcgHighGainActive: Boolean = false,
+    val computationalRawPuristMode: Boolean = false,
+    val matchedDeviceProfile: MatchedDeviceProfile = MatchedDeviceProfile(),
     val waveformLuma: FloatArray = FloatArray(64) { 0.05f },
     val paradeRed: FloatArray = FloatArray(32) { 0.05f },
     val paradeGreen: FloatArray = FloatArray(32) { 0.05f },
@@ -204,32 +212,36 @@ class RawIspBypassEngine(private val context: Context) {
 
     private fun detectCameraCapabilities() {
         try {
-            var foundRawSensor = false
-            var detectedName = "Hardware Camera2 + CameraX Bridge"
-            var cfa = BayerCfaPattern.RGGB
-            for (id in cameraManager.cameraIdList) {
-                val chars = cameraManager.getCameraCharacteristics(id)
-                val caps = chars.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES) ?: IntArray(0)
-                val hasRaw = caps.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_RAW)
-                val cfaArrangement = chars.get(CameraCharacteristics.SENSOR_INFO_COLOR_FILTER_ARRANGEMENT)
-                if (cfaArrangement != null) {
-                    cfa = when (cfaArrangement) {
-                        CameraCharacteristics.SENSOR_INFO_COLOR_FILTER_ARRANGEMENT_RGGB -> BayerCfaPattern.RGGB
-                        CameraCharacteristics.SENSOR_INFO_COLOR_FILTER_ARRANGEMENT_BGGR -> BayerCfaPattern.BGGR
-                        CameraCharacteristics.SENSOR_INFO_COLOR_FILTER_ARRANGEMENT_GRBG -> BayerCfaPattern.GRBG
-                        CameraCharacteristics.SENSOR_INFO_COLOR_FILTER_ARRANGEMENT_GBRG -> BayerCfaPattern.GBRG
-                        else -> BayerCfaPattern.RGGB
-                    }
-                }
-                if (hasRaw) {
-                    foundRawSensor = true
-                    detectedName = "Cam[$id] RAW16 (${cfa.label}) + GPU ISP"
-                    break
-                }
+            val matchedProfile = NativeCameraOsBridge.matchDeviceProfileFromAssets(context)
+            val rawSpecs = NativeCameraOsBridge.probeHardwareRawStreams(context, allowSimulationFallback = true)
+            val bestSpec = rawSpecs.firstOrNull { it.supportsRawSensor && !it.isSimulatedFallback }
+                ?: rawSpecs.firstOrNull()
+            val foundRealRawSensor = bestSpec?.let { it.supportsRawSensor && !it.isSimulatedFallback } ?: false
+            val isSim = bestSpec?.isSimulatedFallback ?: true
+            val tsRealtime = bestSpec?.timestampSourceRealtime ?: false
+            val maxRawFps = bestSpec?.maxRealFps ?: 24.0f
+
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            val thermalHr = if (powerManager != null) {
+                NativeCameraOsBridge.queryThermalHeadroomSafe(powerManager, 5)
+            } else {
+                Float.NaN
             }
+            val thermalStatus = NativeCameraOsBridge.formatThermalQosStatus(thermalHr)
+
+            val verifyTag = if (matchedProfile.isHardwareVerified) "VERIFIED" else "UNVERIFIED PROFILE"
+            val detectedName =
+                "${matchedProfile.marketingName} • ${matchedProfile.primarySensorName} (${matchedProfile.cfaPattern} ${matchedProfile.activeBitDepth}-Bit • $verifyTag)"
+
             _telemetry.value = _telemetry.value.copy(
                 sensorName = detectedName,
-                hardwareRawSupported = foundRawSensor
+                hardwareRawSupported = foundRealRawSensor,
+                isSimulatedRawStream = isSim,
+                timestampSourceRealtime = tsRealtime,
+                maxProbedRawFps = maxRawFps,
+                thermalQosStatus = thermalStatus,
+                matchedDeviceProfile = matchedProfile,
+                isDcgHighGainActive = currentExposure.iso >= matchedProfile.dcgJumpIso
             )
         } catch (_: Exception) {
         }
@@ -364,6 +376,15 @@ class RawIspBypassEngine(private val context: Context) {
         val leftDb = (-28f + meanLuma * 20f + sin(System.currentTimeMillis() * 0.01f) * 3f).coerceIn(-48f, -1f)
         val rightDb = (-27f + meanLuma * 19f + cos(System.currentTimeMillis() * 0.013f + imuEnergy) * 3f).coerceIn(-48f, -1f)
 
+        val currentProfile = _telemetry.value.matchedDeviceProfile
+        val ettrReadout = NativeCameraOsBridge.computeEttrHeadroomStops(
+            bayerSamples = latestBayerBuffer,
+            blackLevel = 256,
+            whiteLevel = currentProfile.whiteLevel.coerceAtLeast(1023),
+            currentIso = currentExposure.iso,
+            dcgJumpIso = currentProfile.dcgJumpIso
+        )
+
         _telemetry.value = _telemetry.value.copy(
             resolutionWidth = srcWidth,
             resolutionHeight = srcHeight,
@@ -378,6 +399,8 @@ class RawIspBypassEngine(private val context: Context) {
             audioLeftDb = leftDb,
             audioRightDb = rightDb,
             meanLuminanceEv = ((meanLuma - 0.5f) * 4f).coerceIn(-3f, 3f),
+            ettrHeadroomStops = ettrReadout.highlightHeadroomStops,
+            isDcgHighGainActive = ettrReadout.isDcgHighGainActive,
             waveformLuma = lumaBins,
             paradeRed = redBins,
             paradeGreen = greenBins,

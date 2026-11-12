@@ -14,12 +14,29 @@ android {
 
   defaultConfig {
     applicationId = "com.aistudio.apexcine.vrawkx"
-    minSdk = 24
+    minSdk = 29
     targetSdk = 36
     versionCode = 1
     versionName = "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+    externalNativeBuild {
+      cmake {
+        cppFlags += listOf("-std=c++20", "-O3", "-Wall", "-Wextra")
+        arguments += listOf("-DANDROID_STL=c++_shared", "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON")
+      }
+    }
+    ndk {
+      abiFilters += listOf("arm64-v8a", "x86_64")
+    }
+  }
+
+  externalNativeBuild {
+    cmake {
+      path = file("src/main/cpp/CMakeLists.txt")
+      version = "3.22.1"
+    }
   }
 
   // Do not remove or modify these signingConfigs. They are necessary for building, installing,

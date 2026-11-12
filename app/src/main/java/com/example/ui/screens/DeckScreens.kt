@@ -1102,7 +1102,7 @@ fun MediaBinGalleryDeck(
 }
 
 /**
- * Combined 200Hz GyroFlow + 16x16 MeshFlow Stabilizer & Hardware Performance Governor Deck.
+ * Combined Camera OS Hardware Diagnostics, 200Hz GyroFlow + 16x16 MeshFlow Stabilizer & Hardware Performance Governor Deck.
  */
 @Composable
 fun GyroAndShizukuSystemDeck(
@@ -1115,8 +1115,12 @@ fun GyroAndShizukuSystemDeck(
     onRecenterGyro: () -> Unit,
     onEngageCineBoost: () -> Unit,
     onToggleOptions: (Boolean, Boolean, Boolean, Boolean) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    telemetry: RawSensorTelemetry = RawSensorTelemetry()
 ) {
+    val profile = telemetry.matchedDeviceProfile
+    val nativeLoaded = com.example.engine.NativeCameraOsBridge.isNativeLibraryLoaded
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -1125,6 +1129,73 @@ fun GyroAndShizukuSystemDeck(
             .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        // 1. Camera OS Hardware & Pipeline Diagnostics Panel (Honest Verification & Capability Readout)
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(OledBlack, RoundedCornerShape(10.dp))
+                    .border(1.dp, TacticalCyan, RoundedCornerShape(10.dp))
+                    .padding(10.dp)
+                    .testTag("camera_os_diagnostics_panel"),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "CAMERA OS HARDWARE & PIPELINE DIAGNOSTICS",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = TacticalCyan
+                    )
+                    Text(
+                        text = if (profile.isHardwareVerified) "VERIFIED LAB PROFILE" else "UNVERIFIED PROFILE",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (profile.isHardwareVerified) ScopeEmerald else CineAmber,
+                        modifier = Modifier.testTag("diagnostics_profile_verification_badge")
+                    )
+                }
+
+                Text(
+                    text = "PROFILE: ${profile.profileId} (${profile.marketingName} • ${profile.primarySensorName})",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = HudTextPrimary
+                )
+                Text(
+                    text = "NATIVE C++20 ENGINE: ${if (nativeLoaded) "LOADED (libapexcine_camera_os.so)" else "JVM FALLBACK BRIDGE"} • CFA: ${profile.cfaPattern} ${profile.activeBitDepth}-BIT",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = HudTextSecondary
+                )
+                Text(
+                    text = "RAW_SENSOR STREAM: ${if (telemetry.hardwareRawSupported && !telemetry.isSimulatedRawStream) "HARDWARE RAW_SENSOR ACTIVE" else "SIMULATED / CAMERAX RGBA PREVIEW FALLBACK"} (MAX ${String.format("%.0f", telemetry.maxProbedRawFps)} FPS)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (telemetry.hardwareRawSupported && !telemetry.isSimulatedRawStream) ScopeEmerald else CineAmber,
+                    modifier = Modifier.testTag("diagnostics_raw_stream_status")
+                )
+                Text(
+                    text = "TIMESTAMP SOURCE: ${if (telemetry.timestampSourceRealtime) "REALTIME (IMU-SYNCED)" else "UNKNOWN / UNCALIBRATED"} • THERMAL QoS: ${telemetry.thermalQosStatus}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = HudTextSecondary
+                )
+                Text(
+                    text = String.format(
+                        "ETTR HEADROOM: +%.2f STOPS • DCG: %s (SWITCH @ ISO %d) • COLOR: %s",
+                        telemetry.ettrHeadroomStops,
+                        if (telemetry.isDcgHighGainActive) "HIGH-GAIN (HCG)" else "LOW-GAIN (LCG)",
+                        profile.dcgJumpIso,
+                        if (profile.isColorimetricallyCalibrated) "CALIBRATED" else "UNCALIBRATED MATRIX"
+                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TacticalCyan
+                )
+            }
+        }
+
+        // 2. Hardware Camera & GPU Compute Governor (Explicitly labeled as Simulated when Shizuku is absent)
         item {
             Column(
                 modifier = Modifier
@@ -1152,12 +1223,12 @@ fun GyroAndShizukuSystemDeck(
                         Spacer(modifier = Modifier.width(6.dp))
                         Column {
                             Text(
-                                text = "HARDWARE CAMERA & GPU COMPUTE GOVERNOR",
+                                text = "HARDWARE CAMERA & GPU COMPUTE GOVERNOR [SIMULATED]",
                                 style = MaterialTheme.typography.labelLarge,
                                 color = HudTextPrimary
                             )
                             Text(
-                                text = "RAM RECLAIMED: +${optimizerState.freedRamMb} MB • BUFFER POOL: ${optimizerState.writerQueueUsedSlabs}/${optimizerState.writerQueueTotalSlabs} SLABS",
+                                text = "RAM RECLAIMED (SIM): +${optimizerState.freedRamMb} MB • BUFFER POOL: ${optimizerState.writerQueueUsedSlabs}/${optimizerState.writerQueueTotalSlabs} SLABS",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = ScopeEmerald
                             )

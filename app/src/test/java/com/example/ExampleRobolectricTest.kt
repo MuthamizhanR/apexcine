@@ -10,9 +10,12 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.data.BayerCfaPattern
 import com.example.data.CaptureMode
 import com.example.data.LogTransferProfile
+import com.example.engine.GpuColorPipeline
 import com.example.engine.GyroMeshStabilizer
+import com.example.engine.NativeCameraOsBridge
 import com.example.engine.RawIspBypassEngine
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -76,12 +79,40 @@ class ExampleRobolectricTest {
         assertTrue(b10 in 200..980)
 
         // 4. Verify real MP4 video recording creates a non-empty .mp4 file AND a visual thumbnail .jpg
-        val mp4File = rawEngine.startRecording(CaptureMode.DIRECT_LOG_10BIT)
+        rawEngine.startRecording(CaptureMode.DIRECT_LOG_10BIT)
         val savedClip = rawEngine.stopRecording(CaptureMode.DIRECT_LOG_10BIT, 8.4f)
         assertNotNull(savedClip)
         assertTrue(File(savedClip!!.filePath).exists())
         assertTrue(File(savedClip.filePath).length() > 0L)
         assertNotNull(rawEngine.getClipThumbnailBitmap(savedClip.filePath))
+
+        // 5. Verify data-driven Device Quirk DB matches OnePlus Nord 5 + target device matrix
+        val nord5 = NativeCameraOsBridge.matchDeviceProfileFromAssets(
+            context, "OnePlus", "OnePlus Nord 5 CPH2709"
+        )
+        assertEquals("oneplus_nord5_lyt600", nord5.profileId)
+        assertEquals(400, nord5.dcgJumpIso)
+        assertFalse(nord5.isHardwareVerified)
+        assertFalse(nord5.isColorimetricallyCalibrated)
+        assertTrue(nord5.measuredMeanDeltaE2000D50 < 0f)
+
+        val pixel9 = NativeCameraOsBridge.matchDeviceProfileFromAssets(
+            context, "Google", "Pixel 9 Pro"
+        )
+        assertEquals("google_pixel9pro_gnk", pixel9.profileId)
+
+        // 6. Verify manufacturer-only match inherits ONLY quirk flags, not Nord 5 sensor specs
+        val oneplus7t = NativeCameraOsBridge.matchDeviceProfileFromAssets(
+            context, "OnePlus", "OnePlus 7T HD1905"
+        )
+        assertEquals("oneplus_generic_quirks_fallback", oneplus7t.profileId)
+        assertFalse(oneplus7t.primarySensorName.contains("LYT-600"))
+
+        // 7. Verify unknown OEM falls back to generic_android_camera2, NOT Nord 5
+        val unknownDevice = NativeCameraOsBridge.matchDeviceProfileFromAssets(
+            context, "Fairphone", "Fairphone 5"
+        )
+        assertEquals("generic_android_camera2", unknownDevice.profileId)
 
         pipeline.release()
         rawEngine.release()
@@ -90,6 +121,7 @@ class ExampleRobolectricTest {
     @Test
     fun verifyFullScreenProCameraModesDrawersAndGalleryRecording() {
         composeTestRule.onNodeWithTag("cpu_gpu_telemetry_bar").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("hud_ettr_stops_badge").assertIsDisplayed()
         composeTestRule.onNodeWithTag("gpu_isp_viewfinder").assertIsDisplayed()
         composeTestRule.onNodeWithTag("primary_record_trigger").assertIsDisplayed()
 
@@ -113,6 +145,8 @@ class ExampleRobolectricTest {
         composeTestRule.onNodeWithTag("color_wheel_lift").assertIsDisplayed()
 
         composeTestRule.onNodeWithTag("nav_tab_gyro_mesh").performClick()
+        composeTestRule.onNodeWithTag("camera_os_diagnostics_panel").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("diagnostics_profile_verification_badge").assertIsDisplayed()
         composeTestRule.onNodeWithTag("engage_shizuku_boost_button").performClick()
         composeTestRule.onNodeWithText("RE-BOOST").assertIsDisplayed()
 

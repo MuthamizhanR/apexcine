@@ -461,7 +461,8 @@ private fun ActiveStudioDeckContent(
                 onHorizonLockChanged = viewModel::setHorizonLock,
                 onRecenterGyro = viewModel::recenterGyro,
                 onEngageCineBoost = viewModel::engageShizukuCineBoost,
-                onToggleOptions = viewModel::toggleOptimizerSwitch
+                onToggleOptions = viewModel::toggleOptimizerSwitch,
+                telemetry = telemetry
             )
         }
 

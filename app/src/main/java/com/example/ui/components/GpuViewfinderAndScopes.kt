@@ -155,6 +155,15 @@ fun FloatingProCameraTopBar(
                     style = MaterialTheme.typography.labelSmall,
                     color = HudTextSecondary
                 )
+
+                val dcgLabel = if (telemetry.isDcgHighGainActive) "HCG" else "LCG"
+                Text(
+                    text = String.format("ETTR +%.1f ST • %s", telemetry.ettrHeadroomStops, dcgLabel),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = if (telemetry.ettrHeadroomStops < 0.4f) RecCrimson else TacticalCyan,
+                    modifier = Modifier.testTag("hud_ettr_stops_badge")
+                )
             }
 
             // Right: Clean Pro Camera Quick Action Icon Buttons
