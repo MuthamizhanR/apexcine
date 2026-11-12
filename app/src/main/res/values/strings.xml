@@ -1,0 +1,19 @@
+<resources>
+    <string name="app_name">ApexCine</string>
+    <string name="hud_title_isp_bypass">100% ISP-BYPASS GPU PIPELINE</string>
+    <string name="mode_mcraw_v3">MCRAW v3</string>
+    <string name="mode_direct_log">DIRECT LOG 10-BIT</string>
+    <string name="mode_raw_dng">RAW DNG</string>
+    <string name="nav_cine_hud">CINE HUD</string>
+    <string name="nav_gyro_mesh">GYROFLOW</string>
+    <string name="nav_nle_grade">NLE &amp; TRACK</string>
+    <string name="nav_shizuku_engine">ENGINE BOOST</string>
+    <string name="action_record_start">START CAPTURE</string>
+    <string name="action_record_stop">STOP CAPTURE</string>
+    <string name="action_capture_dng">DUMP RAW16 DNG</string>
+    <string name="action_flip_hand">ONE-HAND ARC</string>
+    <string name="action_export_prores">EXPORT PRORES 422 MASTER</string>
+    <string name="action_shizuku_boost">ENGAGE SHIZUKU / ADPF CINE BOOST</string>
+    <string name="permission_camera_rationale">Camera &amp; Audio access unlocks hardware Camera2 RAW10/RAW16 sensor stream; synthetic 16-bit Bayer CFA ISP remains active at all times.</string>
+    <string name="permission_grant_cta">ENABLE HARDWARE SENSOR</string>
+</resources>

@@ -1,0 +1,6 @@
+{
+  "name": "ApexCine",
+  "description": "100% ISP-Bypass RAW10/12/16 & DirectLog 10-bit GPU Cinema Camera with 200Hz GyroFlow + MeshFlow Stabilization, Multi-Space Log Grading, NLE Object Tracking, ProRes 422 Export, and Shizuku Game-Engine System Optimizer.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

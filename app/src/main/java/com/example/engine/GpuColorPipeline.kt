@@ -1,0 +1,9 @@
+package com.example.engine
+
+import com.example.GpuColorPipeline as RootGpuColorPipeline
+import com.example.TenBitLogEncodedFrame as RootTenBitLogEncodedFrame
+import com.example.VulkanComputeContext as RootVulkanComputeContext
+
+typealias GpuColorPipeline = RootGpuColorPipeline
+typealias VulkanComputeContext = RootVulkanComputeContext
+typealias TenBitLogEncodedFrame = RootTenBitLogEncodedFrame
