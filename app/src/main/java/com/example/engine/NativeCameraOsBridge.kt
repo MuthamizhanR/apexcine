@@ -89,6 +89,19 @@ object NativeCameraOsBridge {
     external fun nativeProbeDeviceCapabilitiesJson(manufacturer: String, model: String): String
     external fun nativeMatchDeviceProfileJson(manufacturer: String, model: String): String
     external fun nativeReportAdpfActualWorkDurationNs(actualDurationNs: Long)
+    external fun nativeGradeRgbaToArgbIntArray(
+        srcRgba: ByteArray,
+        dstArgb: IntArray,
+        width: Int,
+        height: Int,
+        liftR: Float,
+        liftG: Float,
+        liftB: Float,
+        invGamma: Float,
+        gain: Float,
+        saturation: Float,
+        hdrStrength: Float
+    ): Boolean
 
     fun isStandardBayerCfa(halCfaArrangement: Int): Boolean =
         halCfaArrangement in 0..3

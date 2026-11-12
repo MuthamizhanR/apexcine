@@ -78,11 +78,46 @@ class ExampleRobolectricTest {
         assertTrue(g10 in 200..980)
         assertTrue(b10 in 200..980)
 
-        // 4. Verify real MP4 video recording creates a non-empty .mp4 file AND a visual thumbnail .jpg
+        // 4. Verify portrait (720x1280) and landscape (1280x720) HD live frame ingestion + MP4 video recording at 30 FPS
+        val simulatedCameraRgba = ByteBuffer.allocateDirect(1280 * 720 * 4)
+        for (i in 0 until (1280 * 720 * 4) step 4) {
+            simulatedCameraRgba.put(i, 120.toByte())
+            simulatedCameraRgba.put(i + 1, 140.toByte())
+            simulatedCameraRgba.put(i + 2, 160.toByte())
+            simulatedCameraRgba.put(i + 3, 0xFF.toByte())
+        }
+        rawEngine.onLiveCameraRgbaFrameAvailable(
+            rgbaBuffer = simulatedCameraRgba,
+            srcWidth = 1280,
+            srcHeight = 720,
+            rowStrideBytes = 1280 * 4,
+            rotationDegrees = 90,
+            mirrorHorizontally = false,
+            imuSamples = emptyList()
+        )
+        val portraitSnap = rawEngine.getLatestLiveRgbaSnapshot()
+        assertEquals(720, portraitSnap.width)
+        assertEquals(1280, portraitSnap.height)
+
+        rawEngine.onLiveCameraRgbaFrameAvailable(
+            rgbaBuffer = simulatedCameraRgba,
+            srcWidth = 1280,
+            srcHeight = 720,
+            rowStrideBytes = 1280 * 4,
+            rotationDegrees = 0,
+            mirrorHorizontally = false,
+            imuSamples = emptyList()
+        )
+        val landscapeSnap = rawEngine.getLatestLiveRgbaSnapshot()
+        assertEquals(1280, landscapeSnap.width)
+        assertEquals(720, landscapeSnap.height)
+
         rawEngine.startRecording(CaptureMode.DIRECT_LOG_10BIT)
         val savedClip = rawEngine.stopRecording(CaptureMode.DIRECT_LOG_10BIT, 8.4f)
         assertNotNull(savedClip)
-        assertTrue(File(savedClip!!.filePath).exists())
+        assertEquals("1280x720", savedClip!!.resolutionLabel)
+        assertEquals(30, savedClip.fps)
+        assertTrue(File(savedClip.filePath).exists())
         assertTrue(File(savedClip.filePath).length() > 0L)
         assertNotNull(rawEngine.getClipThumbnailBitmap(savedClip.filePath))
 

@@ -150,9 +150,9 @@ class GpuColorPipeline(
         .allocateDirect(pipelineWidth * pipelineHeight * 4)
         .order(ByteOrder.LITTLE_ENDIAN)
 
-    // Direct RGBA upload buffer for the live hardware camera stream (`pipelineWidth * pipelineHeight * 4`)
-    private val liveRgbaUploadBuffer: ByteBuffer = ByteBuffer
-        .allocateDirect(pipelineWidth * pipelineHeight * 4)
+    // Direct RGBA upload buffer for the live hardware camera stream (`1280 * 720 * 4` HD)
+    private var liveRgbaUploadBuffer: ByteBuffer = ByteBuffer
+        .allocateDirect(rawEngine.hdLongEdge * rawEngine.hdShortEdge * 4)
         .order(ByteOrder.nativeOrder())
 
     private var hardwareBuffer10Bit: HardwareBuffer? = null
@@ -344,6 +344,22 @@ class GpuColorPipeline(
         bindCameraXRawBufferStream(owner, true, lens)
     }
 
+    private fun selectOptimalHardwareFpsRange(targetFps: Int): android.util.Range<Int>? {
+        return try {
+            val cm = context.getSystemService(Context.CAMERA_SERVICE) as? android.hardware.camera2.CameraManager
+                ?: return android.util.Range(30, 30)
+            val chars = cm.getCameraCharacteristics(currentLensOption.cameraId)
+            val ranges = chars.get( android.hardware.camera2.CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES)
+                ?: return android.util.Range(30, 30)
+            val desired = targetFps.coerceIn(24, 60)
+            ranges.filter { it.upper >= desired }
+                .maxWithOrNull(compareBy<android.util.Range<Int>> { it.lower }.thenBy { -it.upper })
+                ?: ranges.maxWithOrNull(compareBy<android.util.Range<Int>> { it.upper }.thenBy { it.lower })
+        } catch (_: Exception) {
+            android.util.Range(30, 30)
+        }
+    }
+
     /**
      * Applies manual focus or exposure adjustments via `Camera2CameraControl` when supported by the
      * active camera hardware without interrupting the live stream.
@@ -375,6 +391,12 @@ class GpuColorPipeline(
                     CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,
                     CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON
                 )
+            selectOptimalHardwareFpsRange(exp.targetFps)?.let { fpsRange ->
+                optionsBuilder.setCaptureRequestOption(
+                    CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,
+                    fpsRange
+                )
+            }
             if (exp.focusDistanceDiopters > 0.05f) {
                 optionsBuilder.setCaptureRequestOption(
                     CaptureRequest.CONTROL_AF_MODE,
@@ -397,7 +419,8 @@ class GpuColorPipeline(
 
     /**
      * Builds the `androidx.camera.core.ImageAnalysis` pipeline using `OUTPUT_IMAGE_FORMAT_RGBA_8888`
-     * and `Camera2Interop.Extender` (`NOISE_REDUCTION_MODE_OFF`, `EDGE_MODE_OFF`, `LENS_OPTICAL_STABILIZATION_MODE_ON`).
+     * and `Camera2Interop.Extender` (`NOISE_REDUCTION_MODE_OFF`, `EDGE_MODE_OFF`, `LENS_OPTICAL_STABILIZATION_MODE_ON`,
+     * and `CONTROL_AE_TARGET_FPS_RANGE` locked to 30/60 FPS).
      * Note: We do NOT force `CONTROL_MODE_OFF` at session initialization so that both physical cameras
      * and virtualized emulator cameras stream bright, properly timed live frames immediately.
      */
@@ -421,6 +444,12 @@ class GpuColorPipeline(
             CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,
             CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_ON
         )
+        selectOptimalHardwareFpsRange(exposure.targetFps)?.let { fpsRange ->
+            interop.setCaptureRequestOption(
+                CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,
+                fpsRange
+            )
+        }
         interop.setSessionCaptureCallback(object : CameraCaptureSession.CaptureCallback() {
             override fun onCaptureCompleted(
                 session: CameraCaptureSession,
@@ -726,11 +755,18 @@ class GpuColorPipeline(
         val stabState = gyroStabilizer.state.value
         val trk = trackedObject
 
-        // 1. Copy the latest real live camera (or recorded clip playback) RGBA buffer into direct upload buffer
-        val latestBytes = rawEngine.getLatestLiveRgbaBytes()
+        // 1. Copy the latest real live camera (or recorded clip playback) HD RGBA buffer into direct upload buffer
+        val snapshot = rawEngine.getLatestLiveRgbaSnapshot()
+        val texW = snapshot.width.coerceAtLeast(16)
+        val texH = snapshot.height.coerceAtLeast(16)
+        val byteCount = (texW * texH * 4).coerceAtMost(snapshot.bytes.size)
+        if (liveRgbaUploadBuffer.capacity() < byteCount) {
+            liveRgbaUploadBuffer = ByteBuffer.allocateDirect(byteCount).order(ByteOrder.nativeOrder())
+        }
         liveRgbaUploadBuffer.clear()
-        liveRgbaUploadBuffer.put(latestBytes)
+        liveRgbaUploadBuffer.put(snapshot.bytes, 0, byteCount)
         liveRgbaUploadBuffer.position(0)
+        liveRgbaUploadBuffer.limit(byteCount)
 
         val cpuPrepMs = ((System.nanoTime() - cpuStartNs) * 1e-6f).coerceIn(0.4f, 6.5f)
         val gpuStartNs = System.nanoTime()
@@ -741,8 +777,8 @@ class GpuColorPipeline(
             GLES30.GL_TEXTURE_2D,
             0,
             GLES30.GL_RGBA,
-            pipelineWidth,
-            pipelineHeight,
+            texW,
+            texH,
             0,
             GLES30.GL_RGBA,
             GLES30.GL_UNSIGNED_BYTE,
@@ -806,8 +842,8 @@ class GpuColorPipeline(
         GLES30.glUniform1i(GLES30.glGetUniformLocation(displayBlitProgramId, "uCameraTex"), 0)
         GLES30.glUniform2f(
             GLES30.glGetUniformLocation(displayBlitProgramId, "uTexSize"),
-            pipelineWidth.toFloat(),
-            pipelineHeight.toFloat()
+            texW.toFloat(),
+            texH.toFloat()
         )
         GLES30.glUniform1i(
             GLES30.glGetUniformLocation(displayBlitProgramId, "uLogProfile"),
